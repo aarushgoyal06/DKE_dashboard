@@ -969,28 +969,8 @@ def admin_page():
         if u["id"] != user["id"] and u["access_status"] == "active"
     ]
     if transfer_candidates:
-        st.subheader("Transfer Presidency")
-        with st.form("transfer_president_form"):
-            candidate_name = st.selectbox("Select new President", [u["name"] for u in transfer_candidates])
-            submitted_transfer = st.form_submit_button("Transfer Presidency")
-            if submitted_transfer:
-                new_president = next((u for u in transfer_candidates if u["name"] == candidate_name), None)
-                if new_president:
-                    transfer_position(user["id"], new_president["id"])
-                    st.success(f"Presidency transferred to {new_president['name']}.")
-                    st.rerun()
-    else:
-        st.info("No eligible active members are available to transfer the presidency.")
-
-    st.subheader("Add new member")
-    with st.form("new_member_form"):
-        name = st.text_input("Name")
-        role = st.selectbox("Role", ALL_ROLES)
-        position = st.selectbox("Position", [""] + EBOARD_ROLES + AUXILIARY_ROLES + JBOARD_ROLES)
-        username_suggestion = format_username(name, position)
-        username = st.text_input("Username", placeholder=username_suggestion)
-        if username_suggestion:
-            st.caption(f"Suggested username: {username_suggestion}")
+        # Show all tasks to every user (position-based visibility removed)
+        assigned = tasks
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Create member")
         if submitted:
