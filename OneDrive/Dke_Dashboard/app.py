@@ -742,6 +742,15 @@ def task_list_page():
     # Always show all tasks to everyone
     assigned = tasks
 
+    # Debug info to help verify visibility (temporary)
+    try:
+        st.caption(f"DEBUG: current_user id={user['id']}, role={user['role']}, total_tasks={len(tasks)}")
+        if len(tasks) > 0:
+            debug_rows = [f"id={t['id']} assigned_user_id={t['assigned_user_id']} assigned_user_name={t.get('assigned_user_name')}" for t in tasks]
+            st.text('\n'.join(debug_rows))
+    except Exception:
+        pass
+
     if not assigned:
         st.info("No tasks available yet.")
         return
