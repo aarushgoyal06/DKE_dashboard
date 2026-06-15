@@ -202,11 +202,16 @@ def resolve_assigned_user_name(task, users):
 def add_task(title, assigned_role, assigned_user_id, due_date, created_by):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO tasks (title, assigned_role, assigned_user_id, due_date, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title.strip(), assigned_role, assigned_user_id, due_date, "todo", created_by, datetime.utcnow().isoformat()),
-    )
-    conn.commit()
+    try:
+        cursor.execute(
+            "INSERT INTO tasks (title, assigned_role, assigned_user_id, due_date, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (title.strip(), assigned_role, assigned_user_id, due_date, "todo", created_by, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.Error:
+        conn.rollback()
+        raise
 
 
 def update_task_status(task_id, status):
@@ -725,14 +730,18 @@ def task_list_page():
                     except ValueError:
                         st.error("Due date must be in MM-DD-YYYY format.")
                         return
-                add_task(
-                    title,
-                    assigned_role if assigned_role != "Any" else None,
-                    assigned_user_id,
-                    due_date,
-                    user["id"],
-                )
-                st.success("Task added.")
+                try:
+                    task_id = add_task(
+                        title,
+                        assigned_role if assigned_role != "Any" else None,
+                        assigned_user_id,
+                        due_date,
+                        user["id"],
+                    )
+                except sqlite3.Error as exc:
+                    st.error(f"Could not save task to the database: {exc}")
+                    return
+                st.success(f"Task added. ID: {task_id}")
                 st.session_state["show_create_task_form"] = False
                 st.rerun()
             if cancel:
