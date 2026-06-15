@@ -739,28 +739,17 @@ def task_list_page():
                     st.rerun()
 
     tasks = get_tasks()
-    # Visibility: President sees all tasks; everyone else sees tasks
-    # assigned to them personally or assigned to their role/position.
-    if user["role"] == "President":
-        assigned = tasks
-    else:
-        assigned = []
-        user_role = user.get("role")
-        user_position = user.get("position")
-        for t in tasks:
-            # Visible if assigned directly to the user
-            if t["assigned_user_id"] is not None and str(t["assigned_user_id"]) == str(user.get("id")):
-                assigned.append(t)
-                continue
-            # Visible if assigned to the user's role or position
-            assigned_role = t.get("assigned_role")
-            if assigned_role:
-                aliases = EBOARD_ROLE_ALIASES.get(assigned_role, [assigned_role])
-                if (user_role and user_role in aliases) or (user_position and user_position in aliases) or (
-                    assigned_role == "Brother" and user_role == "Brother"
-                ):
-                    assigned.append(t)
-                    continue
+    # Always show all tasks to everyone
+    assigned = tasks
+
+    # Debug info to help verify visibility (temporary)
+    try:
+        st.caption(f"DEBUG: current_user id={user['id']}, role={user['role']}, total_tasks={len(tasks)}")
+        if len(tasks) > 0:
+            debug_rows = [f"id={t['id']} assigned_user_id={t['assigned_user_id']} assigned_user_name={t.get('assigned_user_name')}" for t in tasks]
+            st.text('\n'.join(debug_rows))
+    except Exception:
+        pass
 
     if not assigned:
         st.info("No tasks available yet.")
@@ -969,8 +958,28 @@ def admin_page():
         if u["id"] != user["id"] and u["access_status"] == "active"
     ]
     if transfer_candidates:
-        # Show all tasks to every user (position-based visibility removed)
-        assigned = tasks
+        st.subheader("Transfer Presidency")
+        with st.form("transfer_president_form"):
+            candidate_name = st.selectbox("Select new President", [u["name"] for u in transfer_candidates])
+            submitted_transfer = st.form_submit_button("Transfer Presidency")
+            if submitted_transfer:
+                new_president = next((u for u in transfer_candidates if u["name"] == candidate_name), None)
+                if new_president:
+                    transfer_position(user["id"], new_president["id"])
+                    st.success(f"Presidency transferred to {new_president['name']}.")
+                    st.rerun()
+    else:
+        st.info("No eligible active members are available to transfer the presidency.")
+
+    st.subheader("Add new member")
+    with st.form("new_member_form"):
+        name = st.text_input("Name")
+        role = st.selectbox("Role", ALL_ROLES)
+        position = st.selectbox("Position", [""] + EBOARD_ROLES + AUXILIARY_ROLES + JBOARD_ROLES)
+        username_suggestion = format_username(name, position)
+        username = st.text_input("Username", placeholder=username_suggestion)
+        if username_suggestion:
+            st.caption(f"Suggested username: {username_suggestion}")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Create member")
         if submitted:
