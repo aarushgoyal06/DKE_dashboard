@@ -675,6 +675,7 @@ def task_list_page():
     st.markdown("Use this page to view and manage tasks by position, status, and owner.")
     user = st.session_state["current_user"]
 
+
     if "show_create_task_form" not in st.session_state:
         st.session_state["show_create_task_form"] = False
 
@@ -738,6 +739,7 @@ def task_list_page():
                     st.rerun()
 
     tasks = get_tasks()
+    # Always show all tasks to everyone
     assigned = tasks
 
     if not assigned:
