@@ -672,164 +672,153 @@ def home_page():
 
 def task_list_page():
     st.header("Task Board")
-    st.markdown("Use this page to view and manage tasks by position, status, and owner.")
+    st.markdown("View all assigned tasks and manage their status.")
     user = st.session_state["current_user"]
-
 
     if "show_create_task_form" not in st.session_state:
         st.session_state["show_create_task_form"] = False
 
+    # Create Task Button (President only)
     if user["role"] == "President":
         cols = st.columns([5, 1])
         with cols[1]:
-            if st.button("+ Create Task"):
+            if st.button("➕ Create Task"):
                 st.session_state["show_create_task_form"] = True
 
-        if st.session_state["show_create_task_form"]:
-            with st.form("create_task_form"):
-                title = st.text_input("Task title")
-                position_options = ["Any"] + EBOARD_ROLES + AUXILIARY_ROLES + JBOARD_ROLES + ["Brother"]
-                assigned_role = st.selectbox("Assign position", position_options)
-                if assigned_role == "Any":
-                    assignable_users = [u["name"] for u in get_users() if u["access_status"] == "active"]
-                else:
-                    aliases = EBOARD_ROLE_ALIASES.get(assigned_role, [assigned_role])
-                    assignable_users = [
-                        u["name"]
-                        for u in get_users()
-                        if u["access_status"] == "active"
-                        and (
-                            u["role"] in aliases
-                            or u["position"] in aliases
-                            or (assigned_role == "Brother" and u["role"] == "Brother")
-                        )
-                    ]
-                assigned_user = st.selectbox("Assign person", ["None"] + assignable_users)
-                assigned_user_id = None
-                if assigned_user != "None":
-                    selected_user = next((u for u in get_users() if u["name"] == assigned_user), None)
-                    assigned_user_id = selected_user["id"] if selected_user else None
-                due_date = st.text_input("Due date (MM-DD-YYYY)")
-                if not due_date:
-                    due_date = None
-                col1, col2 = st.columns([1, 1])
-                submit = col1.form_submit_button("Create task")
-                cancel = col2.form_submit_button("Cancel")
-                if submit:
-                    if not title:
-                        st.error("Task title is required.")
-                    elif due_date:
-                        try:
-                            datetime.strptime(due_date, "%m-%d-%Y")
-                        except ValueError:
-                            st.error("Due date must be in MM-DD-YYYY format.")
-                            return
-                    add_task(
-                        title,
-                        assigned_role if assigned_role != "Any" else None,
-                        assigned_user_id,
-                        due_date,
-                        user["id"],
+    # Create Task Form
+    if st.session_state["show_create_task_form"]:
+        with st.form("create_task_form"):
+            title = st.text_input("Task title")
+            position_options = ["Any"] + EBOARD_ROLES + AUXILIARY_ROLES + JBOARD_ROLES + ["Brother"]
+            assigned_role = st.selectbox("Assign position", position_options)
+            if assigned_role == "Any":
+                assignable_users = [u["name"] for u in get_users() if u["access_status"] == "active"]
+            else:
+                aliases = EBOARD_ROLE_ALIASES.get(assigned_role, [assigned_role])
+                assignable_users = [
+                    u["name"]
+                    for u in get_users()
+                    if u["access_status"] == "active"
+                    and (
+                        u["role"] in aliases
+                        or u["position"] in aliases
+                        or (assigned_role == "Brother" and u["role"] == "Brother")
                     )
-                    st.success("Task added.")
-                    st.session_state["show_create_task_form"] = False
-                    st.rerun()
-                if cancel:
-                    st.session_state["show_create_task_form"] = False
-                    st.rerun()
+                ]
+            assigned_user = st.selectbox("Assign person", ["None"] + assignable_users)
+            assigned_user_id = None
+            if assigned_user != "None":
+                selected_user = next((u for u in get_users() if u["name"] == assigned_user), None)
+                assigned_user_id = selected_user["id"] if selected_user else None
+            due_date = st.text_input("Due date (MM-DD-YYYY)")
+            if not due_date:
+                due_date = None
+            col1, col2 = st.columns([1, 1])
+            submit = col1.form_submit_button("Create task")
+            cancel = col2.form_submit_button("Cancel")
+            if submit:
+                if not title:
+                    st.error("Task title is required.")
+                elif due_date:
+                    try:
+                        datetime.strptime(due_date, "%m-%d-%Y")
+                    except ValueError:
+                        st.error("Due date must be in MM-DD-YYYY format.")
+                        return
+                add_task(
+                    title,
+                    assigned_role if assigned_role != "Any" else None,
+                    assigned_user_id,
+                    due_date,
+                    user["id"],
+                )
+                st.success("Task added.")
+                st.session_state["show_create_task_form"] = False
+                st.rerun()
+            if cancel:
+                st.session_state["show_create_task_form"] = False
+                st.rerun()
 
+    # Get Tasks
     tasks = get_tasks()
-    # Show all tasks to every user (everyone can see tasks for every position)
-    assigned = tasks
-
-    if not assigned:
+    if not tasks:
         st.info("No tasks available yet.")
         return
 
     users = get_users()
+    
+    # Display Assigned Tasks Section
+    st.subheader("📋 All Assigned Tasks")
+    
+    # Filter into status groups
     status_columns = {
         "todo": "To Do",
         "in_progress": "In Progress",
         "done": "Done",
     }
-    grouped = {status: [] for status in status_columns}
-    for task in assigned:
-        grouped.setdefault(task["status"], []).append(task)
-
+    
+    # Create three columns for Kanban view
     cols = st.columns([1, 1, 1])
+    
     for idx, status in enumerate(["todo", "in_progress", "done"]):
+        status_tasks = [t for t in tasks if t["status"] == status]
         with cols[idx]:
-            st.subheader(status_columns[status])
-            if not grouped[status]:
-                st.write("No tasks")
-            for task in grouped[status]:
-                assigned_user_name = resolve_assigned_user_name(task, users)
-                badge_class = "task-badge"
-                if assigned_user_name:
-                    badge_text = assigned_user_name
-                elif task["assigned_role"]:
-                    badge_text = task["assigned_role"]
-                    badge_class = "task-badge task-badge-unassigned"
-                else:
-                    badge_text = "Not assigned"
-                    badge_class = "task-badge task-badge-unassigned"
-
-                role_note = task["assigned_role"] if task["assigned_role"] else None
-                role_html = (
-                    f"<div style=\"margin-top: 0.35rem; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; opacity: 0.88;\">"
-                    f"<span style=\"background: rgba(255,255,255,0.08); color: #ffffff; padding: 0.3rem 0.65rem; border-radius: 999px;\">Assigned role: {role_note}</span>"
-                    f"</div>"
-                    if role_note
-                    else ""
-                )
-
-                st.markdown(
-                    f"""
-                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; padding: 0.6rem; border-left: 3px solid #c99700; border-radius: 6px; background: rgba(201,151,0,0.08);">
-                        <div style="display: flex; align-items: center; gap: 0.8rem;">
-                            <span style="flex: 1; font-weight: 500;">{task['title']}</span>
-                            <span class="{badge_class}">{badge_text}</span>
-                        </div>
-                        <div style="font-size: 0.9rem; opacity: 0.9;">Assigned to: <strong>{badge_text}</strong></div>
-                        {role_html}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                card = st.expander("📋 Details")
-                with card:
-                    if assigned_user_name:
-                        st.write(f"**Assigned person:** {assigned_user_name}")
-                    elif task["assigned_role"]:
-                        st.write(f"**Assigned role:** {task['assigned_role']}")
-                    else:
-                        st.write("**Assigned person:** Not assigned")
-                    if task["due_date"]:
-                        st.write(f"**Due date:** {task['due_date']}")
-
-                    can_edit = user["role"] == "President" or task["assigned_user_id"] == user["id"]
-                    if can_edit:
-                        if status == "todo":
-                            if st.button("Move to In Progress", key=f"move_{task['id']}_in_progress"):
-                                update_task_status(task["id"], "in_progress")
-                                st.rerun()
-                        elif status == "in_progress":
-                            if st.button("Move to Done", key=f"move_{task['id']}_done"):
-                                update_task_status(task["id"], "done")
-                                st.rerun()
-                            if st.button("Move back to To Do", key=f"move_{task['id']}_todo"):
-                                update_task_status(task["id"], "todo")
-                                st.rerun()
+            st.markdown(f"**{status_columns[status]}** ({len(status_tasks)})")
+            st.divider()
+            
+            if not status_tasks:
+                st.info("No tasks")
+            else:
+                for task in status_tasks:
+                    assigned_user_name = resolve_assigned_user_name(task, users)
+                    
+                    # Task card with assignment info
+                    with st.container(border=True):
+                        st.write(f"**{task['title']}**")
+                        
+                        # Show assignment
+                        if assigned_user_name:
+                            st.caption(f"👤 **Assigned to:** {assigned_user_name}")
+                        elif task["assigned_role"]:
+                            st.caption(f"📌 **Assigned role:** {task['assigned_role']}")
                         else:
-                            if st.button("Reopen task", key=f"move_{task['id']}_todo_done"):
-                                update_task_status(task["id"], "todo")
-                                st.rerun()
-
-                        if user["role"] == "President":
-                            if st.button("Delete task", key=f"delete_{task['id']}"):
-                                delete_task(task["id"])
-                                st.success("Task deleted.")
-                                st.rerun()
+                            st.caption("⚠️ **Not assigned**")
+                        
+                        # Show due date if exists
+                        if task["due_date"]:
+                            st.caption(f"📅 **Due:** {task['due_date']}")
+                        
+                        # Action buttons
+                        can_edit = user["role"] == "President" or task["assigned_user_id"] == user["id"]
+                        if can_edit:
+                            action_cols = st.columns([1, 1] if user["role"] == "President" else [1])
+                            
+                            if status == "todo":
+                                if action_cols[0].button("▶️ Start", key=f"move_{task['id']}_in_progress"):
+                                    update_task_status(task["id"], "in_progress")
+                                    st.rerun()
+                            elif status == "in_progress":
+                                if action_cols[0].button("✅ Done", key=f"move_{task['id']}_done"):
+                                    update_task_status(task["id"], "done")
+                                    st.rerun()
+                                if action_cols[1].button("↩️ Back", key=f"move_{task['id']}_todo"):
+                                    update_task_status(task["id"], "todo")
+                                    st.rerun()
+                            else:
+                                if action_cols[0].button("🔄 Reopen", key=f"move_{task['id']}_todo_done"):
+                                    update_task_status(task["id"], "todo")
+                                    st.rerun()
+                            
+                            if user["role"] == "President" and len(action_cols) > 1:
+                                if action_cols[1].button("🗑️ Delete", key=f"delete_{task['id']}"):
+                                    delete_task(task["id"])
+                                    st.success("Task deleted.")
+                                    st.rerun()
+                            elif user["role"] == "President" and len(action_cols) == 1:
+                                if st.button("🗑️ Delete", key=f"delete_{task['id']}"):
+                                    delete_task(task["id"])
+                                    st.success("Task deleted.")
+                                    st.rerun()
 
 
 def roster_page():
@@ -944,19 +933,7 @@ def admin_page():
             st.success(f"Disabled {member['name']}.")
             st.rerun()
 
-    transfer_candidates = [
-        u for u in users
-        if u["id"] != user["id"] and u["access_status"] == "active"
-    ]
-    if transfer_candidates:
-        # Show all tasks to every user (position-based visibility removed)
-        assigned = tasks
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Create member")
-        if submitted:
-            create_user(name, username, password or "welcome", role, position)
-            st.success("Member created.")
-            st.rerun()
+
 
 
 def main():
