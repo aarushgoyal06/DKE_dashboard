@@ -739,10 +739,28 @@ def task_list_page():
                     st.rerun()
 
     tasks = get_tasks()
-    # Always show all tasks to everyone
-    assigned = tasks
-
-    # (debug output removed)
+    # Visibility: President sees all tasks; everyone else sees tasks
+    # assigned to them personally or assigned to their role/position.
+    if user["role"] == "President":
+        assigned = tasks
+    else:
+        assigned = []
+        user_role = user.get("role")
+        user_position = user.get("position")
+        for t in tasks:
+            # Visible if assigned directly to the user
+            if t["assigned_user_id"] is not None and str(t["assigned_user_id"]) == str(user.get("id")):
+                assigned.append(t)
+                continue
+            # Visible if assigned to the user's role or position
+            assigned_role = t.get("assigned_role")
+            if assigned_role:
+                aliases = EBOARD_ROLE_ALIASES.get(assigned_role, [assigned_role])
+                if (user_role and user_role in aliases) or (user_position and user_position in aliases) or (
+                    assigned_role == "Brother" and user_role == "Brother"
+                ):
+                    assigned.append(t)
+                    continue
 
     if not assigned:
         st.info("No tasks available yet.")
