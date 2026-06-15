@@ -789,9 +789,9 @@ def task_list_page():
                             st.caption(f"📅 **Due:** {task['due_date']}")
                         
                         # Action buttons
-                        can_edit = user["role"] == "President" or task["assigned_user_id"] == user["id"]
+                        can_edit = True  # All signed-in users can update shared task status.
                         if can_edit:
-                            action_cols = st.columns([1, 1] if user["role"] == "President" else [1])
+                            action_cols = st.columns([1, 1])
                             
                             if status == "todo":
                                 if action_cols[0].button("▶️ Start", key=f"move_{task['id']}_in_progress"):
