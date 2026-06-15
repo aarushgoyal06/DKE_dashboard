@@ -44,8 +44,15 @@ ALL_ROLES = ["Brother"] + EBOARD_ROLES + AUXILIARY_ROLES + JBOARD_ROLES
 
 @st.cache_resource
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # Use a small timeout to reduce "database is locked" OperationalError
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
+    try:
+        # Enable WAL to reduce write-lock contention
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+    except Exception:
+        pass
     return conn
 
 
@@ -239,12 +246,19 @@ def create_user(name, username, password, role, position, access_status="pending
         return False
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO users (name, email, password, role, position, access_status) VALUES (?, ?, ?, ?, ?, ?)",
-        (name.strip(), username.strip().lower(), hash_password(password), role, position, access_status),
-    )
-    conn.commit()
-    return True
+    try:
+        cursor.execute(
+            "INSERT INTO users (name, email, password, role, position, access_status) VALUES (?, ?, ?, ?, ?, ?)",
+            (name.strip(), username.strip().lower(), hash_password(password), role, position, access_status),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        # Likely a UNIQUE constraint on email — treat as existing user
+        return False
+    except Exception:
+        # Any other DB error — do not crash the app
+        return False
 
 
 def president_exists():
@@ -582,7 +596,11 @@ def login_page():
                     if created:
                         st.success("Account request submitted. The President will approve access.")
                     else:
-                        st.error("Could not create account. Please check the username and try again.")
+                        # Re-check whether username exists to give a clearer message
+                        if user_exists(username):
+                            st.error("An account with this username already exists.")
+                        else:
+                            st.error("Could not create account. Please try a different username or contact the President.")
 
     if mode == "Reset credentials":
         st.info("Reset a username or password if you cannot log in. This will replace the existing account credentials.")
