@@ -170,8 +170,26 @@ def get_users():
 def get_tasks():
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tasks ORDER BY status, created_at")
+    cursor.execute(
+        """
+        SELECT tasks.*, users.name AS assigned_user_name
+        FROM tasks
+        LEFT JOIN users ON users.id = tasks.assigned_user_id
+        ORDER BY tasks.status, tasks.created_at
+        """
+    )
     return cursor.fetchall()
+
+
+def resolve_assigned_user_name(task, users):
+    if task["assigned_user_name"]:
+        return task["assigned_user_name"]
+    if task["assigned_user_id"] is None:
+        return None
+    for u in users:
+        if u["id"] == task["assigned_user_id"] or str(u["id"]) == str(task["assigned_user_id"]):
+            return u["name"]
+    return None
 
 
 def add_task(title, assigned_role, assigned_user_id, due_date, created_by):
@@ -443,7 +461,21 @@ def inject_theme_styles():
         }
         .pill-blue { background: #4d7bd1; }
         .pill-gold { background: #f0b429; }
-        .pill-crimson { background: #900020; color: #fff; }
+        .task-badge {
+            display: inline-block;
+            background: rgba(201,151,0,0.8);
+            color: #071f4a;
+            padding: 0.3rem 0.65rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        .task-badge-unassigned {
+            background: rgba(200,200,200,0.5);
+            color: #ffffff;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -656,8 +688,8 @@ def task_list_page():
                 assigned_user = st.selectbox("Assign person", ["None"] + assignable_users)
                 assigned_user_id = None
                 if assigned_user != "None":
-                    selected = [u for u in get_users() if u["name"] == assigned_user]
-                    assigned_user_id = selected[0]["id"] if selected else None
+                    selected_user = next((u for u in get_users() if u["name"] == assigned_user), None)
+                    assigned_user_id = selected_user["id"] if selected_user else None
                 due_date = st.text_input("Due date (MM-DD-YYYY)")
                 if not due_date:
                     due_date = None
@@ -688,22 +720,13 @@ def task_list_page():
                     st.rerun()
 
     tasks = get_tasks()
-    assigned = []
-    for task in tasks:
-        assigned_role = task["assigned_role"]
-        if (
-            assigned_role in (user["role"], user.get("position"), "Brother", None, "", "Any")
-            or task["assigned_user_id"] == user["id"]
-            or user["role"] == "President"
-        ):
-            assigned.append(task)
+    assigned = tasks
 
     if not assigned:
-        st.info("No tasks available for your role yet.")
+        st.info("No tasks available yet.")
         return
 
     users = get_users()
-    user_map = {u["id"]: u["name"] for u in users}
     status_columns = {
         "todo": "To Do",
         "in_progress": "In Progress",
@@ -720,33 +743,73 @@ def task_list_page():
             if not grouped[status]:
                 st.write("No tasks")
             for task in grouped[status]:
-                card = st.expander(f"{task['title']}")
+                assigned_user_name = resolve_assigned_user_name(task, users)
+                badge_class = "task-badge"
+                if assigned_user_name:
+                    badge_text = assigned_user_name
+                elif task["assigned_role"]:
+                    badge_text = task["assigned_role"]
+                    badge_class = "task-badge task-badge-unassigned"
+                else:
+                    badge_text = "Not assigned"
+                    badge_class = "task-badge task-badge-unassigned"
+
+                role_note = task["assigned_role"] if task["assigned_role"] else None
+                role_html = (
+                    f"<div style=\"margin-top: 0.35rem; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; opacity: 0.88;\">"
+                    f"<span style=\"background: rgba(255,255,255,0.08); color: #ffffff; padding: 0.3rem 0.65rem; border-radius: 999px;\">Assigned role: {role_note}</span>"
+                    f"</div>"
+                    if role_note
+                    else ""
+                )
+
+                st.markdown(
+                    f"""
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; padding: 0.6rem; border-left: 3px solid #c99700; border-radius: 6px; background: rgba(201,151,0,0.08);">
+                        <div style="display: flex; align-items: center; gap: 0.8rem;">
+                            <span style="flex: 1; font-weight: 500;">{task['title']}</span>
+                            <span class="{badge_class}">{badge_text}</span>
+                        </div>
+                        <div style="font-size: 0.9rem; opacity: 0.9;">Assigned to: <strong>{badge_text}</strong></div>
+                        {role_html}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                card = st.expander("📋 Details")
                 with card:
-                    assigned_user_name = user_map.get(task["assigned_user_id"], "Not assigned") if task["assigned_user_id"] else "Not assigned"
-                    st.write(f"**Assigned person:** {assigned_user_name}")
+                    if assigned_user_name:
+                        st.write(f"**Assigned person:** {assigned_user_name}")
+                    elif task["assigned_role"]:
+                        st.write(f"**Assigned role:** {task['assigned_role']}")
+                    else:
+                        st.write("**Assigned person:** Not assigned")
                     if task["due_date"]:
                         st.write(f"**Due date:** {task['due_date']}")
-                    if status == "todo":
-                        if st.button("Move to In Progress", key=f"move_{task['id']}_in_progress"):
-                            update_task_status(task["id"], "in_progress")
-                            st.rerun()
-                    elif status == "in_progress":
-                        if st.button("Move to Done", key=f"move_{task['id']}_done"):
-                            update_task_status(task["id"], "done")
-                            st.rerun()
-                        if st.button("Move back to To Do", key=f"move_{task['id']}_todo"):
-                            update_task_status(task["id"], "todo")
-                            st.rerun()
-                    else:
-                        if st.button("Reopen task", key=f"move_{task['id']}_todo_done"):
-                            update_task_status(task["id"], "todo")
-                            st.rerun()
 
-                    if user["role"] == "President":
-                        if st.button("Delete task", key=f"delete_{task['id']}"):
-                            delete_task(task["id"])
-                            st.success("Task deleted.")
-                            st.rerun()
+                    can_edit = user["role"] == "President" or task["assigned_user_id"] == user["id"]
+                    if can_edit:
+                        if status == "todo":
+                            if st.button("Move to In Progress", key=f"move_{task['id']}_in_progress"):
+                                update_task_status(task["id"], "in_progress")
+                                st.rerun()
+                        elif status == "in_progress":
+                            if st.button("Move to Done", key=f"move_{task['id']}_done"):
+                                update_task_status(task["id"], "done")
+                                st.rerun()
+                            if st.button("Move back to To Do", key=f"move_{task['id']}_todo"):
+                                update_task_status(task["id"], "todo")
+                                st.rerun()
+                        else:
+                            if st.button("Reopen task", key=f"move_{task['id']}_todo_done"):
+                                update_task_status(task["id"], "todo")
+                                st.rerun()
+
+                        if user["role"] == "President":
+                            if st.button("Delete task", key=f"delete_{task['id']}"):
+                                delete_task(task["id"])
+                                st.success("Task deleted.")
+                                st.rerun()
 
 
 def roster_page():
